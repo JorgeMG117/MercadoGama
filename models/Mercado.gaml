@@ -18,25 +18,16 @@ global torus:false {
 	bool game_over <- false;
 //  Parameters setup:
 	int initial_beers <- 1;
-	int beers_to_ask <- 4;
-	int initial_sips <- 1;
-	int sips_in_a_beer <- 3;
-	int beer_limit <- 5;
+	int n_compradores <- 1;
+	int n_vendedores <- 1;
 // Shared knowledge by all agents that belong to the ontology:
 // - Roles:
-	string Fridge_role <- "Fridge";
-	string Robot_role <- "Robot";
-	string Super_role <- "Super";
-	string Human_role <- "Human";
+	string Comprador_role <- "Comprador";
+	string Vendedor_role <- "Vendedor";
 // - Actions to be used in the content of messages:
-	string give_beer <- "Give_Beer";
-	string bring_beer <- "Bring_Beer";
-	string supply_beer <- "Suply_Beer";
+	//string give_beer <- "Give_Beer";
 // - Predicates to be used in the content of messages:
-	string given_beer <- "Given_Beer";
-	string brought_beer <- "Brought_Beer";
-	string supplied_beer <- "Supplied_Beer";
-	string no_beers <- "No_Beers";
+	//string given_beer <- "Given_Beer";
 // - Concepts to be linked with actions and predicates of the messages:
 	string num_beers <- "Number_Beers";
 		 	
@@ -91,6 +82,12 @@ species df {
 	} 
 }
 
+/*
+ * Desires:
+ * 	find_store, based on products you need to buy
+ * 	ask_info
+ * 	buy_product
+ */
 
 species comprador skills: [fipa] control: simple_bdi {
 	rgb owner_color;
@@ -98,26 +95,70 @@ species comprador skills: [fipa] control: simple_bdi {
 	rgb drinking_color <- #green;
 	bool perceived <- false;
 	// beliefs of the owner
-	string sips <- "sips";
-	string no_beer <- "no_beer";
-	string no_drunk <- "no_drunk";
-	string num_sips <- "number_sips";
-	// desires of the owner
-	predicate pedir_traer <- new_predicate("pedir_traer");
-	predicate beber <- new_predicate("beber");
+	string amount_money <- "amount_money";
+	// desires of the comprador
+	predicate negociar <- new_predicate("negociar");
+	predicate comprar <- new_predicate("comprar");
+	predicate preguntar <- new_predicate("preguntar");
 	//list<robot> my_robots;
+	
+	message requestInfoFromVendedor;
+	
+	list<string> my_products;
+	vendedor vendedor_actual;
+	
 	init {
 		owner_color <- drinking_color;
 		location <- {5, 5};
-		predicate pred_no_drunk <- new_predicate(no_drunk); 
-		do add_belief (pred_no_drunk);
-		int attribute_value <- initial_sips;
-		string attribute_name <- num_sips;
-		predicate pred_sips <- new_predicate(sips,[attribute_name::attribute_value]);
-		// 3 sorbos por cerveza
-		do add_belief (pred_sips);
-		do add_desire(beber);
+		
+
+		//do add_desire(comprar);
+		do add_desire(preguntar);
+	}
+		
+	reflex receive_inform when: !empty(informs) {
+		write name + ' receive_inform';
+		loop i over: informs {
+			write 'accept_proposal message with content: ' + string(i.contents);
 		}
+		
+		do remove_desire(preguntar);
+		// Igual añadir un belief del precio??
+		do add_desire(negociar);
+	}
+	
+	plan plan_comprar intention: comprar {
+		
+		
+	}
+	
+	plan plan_negociar intention: negociar {
+		// tengo en una variable el precio que me han propuesto
+		// valoro si quiero hacer una contraoferta
+		int precio_recibido <- 30;
+		int precio_contraoferta <- 25;
+		write name + " proponiendo contraoferta: " + precio_contraoferta;
+		
+		//si quiero
+			//escribir proposal (proponer_contraoferta)
+		comprador comprador_actual <- comprador at_distance(10000000) at 0;
+		do start_conversation to: [comprador_actual] protocol: 'fipa-propose' performative: 'propose' contents: ['Go swimming?'] ;
+	}
+	
+	plan plan_preguntar intention: preguntar {
+		vendedor_actual <- vendedor at_distance(1000000) at 0;
+		
+		//do start_conversation to: [vendedor_actual] protocol: 'fipa-propose' performative: 'propose' contents: ['Go swimming?'] ;
+		//do start_conversation to: [the_fridge] protocol: 'fipa-request' performative: 'request' contents: contenido ;	
+		do start_conversation to: [vendedor_actual] protocol: 'no-protocol' performative: 'inform' contents: [''] ;
+	}
+	
+	reflex read_accept_proposals when: !(empty(accept_proposals)) {
+		write name + ' receives accept_proposal messages';
+		loop i over: accept_proposals {
+			write 'accept_proposal message with content: ' + string(i.contents);
+		}
+	}
 	
 	aspect name:comprador_aspect {		
 		draw geometry:circle(33.3/size) color:owner_color;
@@ -125,7 +166,7 @@ species comprador skills: [fipa] control: simple_bdi {
 		// green when it is drinking
 		point punto <- location;
 		point punto2 <- {punto.x-1, punto.y+1};
-		draw string("O") color: #black font:font("Helvetica", 15 , #plain) at: punto2;
+		draw string("C") color: #black font:font("Helvetica", 15 , #plain) at: punto2;
 	}
 }
 
@@ -134,18 +175,18 @@ species vendedor skills: [fipa] control: simple_bdi {
 	rgb thristy_color<- #red;
 	rgb drinking_color <- #green;
 	bool perceived <- false;
+	
 	// beliefs of the owner
-	string sips <- "sips";
-	string no_beer <- "no_beer";
-	string no_drunk <- "no_drunk";
-	string num_sips <- "number_sips";
+	string inventario <- "pescado";
+
 	// desires of the owner
-	predicate pedir_traer <- new_predicate("pedir_traer");
-	predicate beber <- new_predicate("beber");
+	//predicate pedir_traer <- new_predicate("pedir_traer");
+	
 	//list<robot> my_robots;
 	init {
 		owner_color <- drinking_color;
 		location <- {10*size-5, 10*size-5};
+		/* 
 		predicate pred_no_drunk <- new_predicate(no_drunk); 
 		do add_belief (pred_no_drunk);
 		int attribute_value <- initial_sips;
@@ -153,8 +194,24 @@ species vendedor skills: [fipa] control: simple_bdi {
 		predicate pred_sips <- new_predicate(sips,[attribute_name::attribute_value]);
 		// 3 sorbos por cerveza
 		do add_belief (pred_sips);
-		do add_desire(beber);
+		do add_desire(beber);*/
 		}
+		
+		
+	// Comprador pregunta info productos
+	reflex receive_inform when: !empty(informs) {
+		write name + ' receive_inform';
+		message informDelComprador <- informs at 0;
+		do inform message: informDelComprador contents: ['Precio del pescado: 30!'] ;
+	}
+	
+	reflex accept_proposal when: !(empty(proposes)) {
+		write name + ' accept_proposal';
+		message proposalFromInitiator <- proposes at 0;
+		
+		do accept_proposal message: proposalFromInitiator contents: ['OK! It \'s hot today!'] ;
+	}
+	
 		
 	aspect name:vendedor_aspect {		
 		draw geometry:circle(33.3/size) color:owner_color;
@@ -162,7 +219,7 @@ species vendedor skills: [fipa] control: simple_bdi {
 		// green when it is drinking
 		point punto <- location;
 		point punto2 <- {punto.x-1, punto.y+1};
-		draw string("O") color: #black font:font("Helvetica", 15 , #plain) at: punto2;
+		draw string("V") color: #black font:font("Helvetica", 15 , #plain) at: punto2;
 	}
 }
 
@@ -170,11 +227,7 @@ species vendedor skills: [fipa] control: simple_bdi {
 
 experiment morebeers type: gui {
 // parameters
-	parameter "Initial sips of the human (positive integer):" var: initial_sips category: "Human";
-	parameter "Total sips of a full beer (positive integer):" var: sips_in_a_beer category: "Human";
-	parameter "Number of beers asked to be supplied by the Supermarket (positive integer):" var: beers_to_ask category: "Robot";
-	parameter "Number of beers to get drunk (positive integer):" var: beer_limit category: "Robot";
-	parameter "Initial beers in the fridge (positive integer):" var: initial_beers category: "Fridge";
+	//parameter "Initial sips of the human (positive integer):" var: initial_sips category: "Human";
 
 	output {
 		display my_display type: java2D {
