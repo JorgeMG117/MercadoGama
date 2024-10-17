@@ -119,7 +119,7 @@ species comprador skills: [fipa] control: simple_bdi {
 	reflex receive_inform when: !empty(informs) {
 		write name + ' receive_inform';
 		loop i over: informs {
-			write 'accept_proposal message with content: ' + string(i.contents);
+			write 'receive_inform message with content: ' + string(i.contents);
 		}
 		
 		do remove_desire(preguntar);
@@ -128,7 +128,7 @@ species comprador skills: [fipa] control: simple_bdi {
 	}
 	
 	plan plan_comprar intention: comprar {
-		
+		write name + "Ahora toca comprar";
 		
 	}
 	
@@ -141,8 +141,7 @@ species comprador skills: [fipa] control: simple_bdi {
 		
 		//si quiero
 			//escribir proposal (proponer_contraoferta)
-		comprador comprador_actual <- comprador at_distance(10000000) at 0;
-		do start_conversation to: [comprador_actual] protocol: 'fipa-propose' performative: 'propose' contents: ['Go swimming?'] ;
+		do start_conversation to: [vendedor_actual] protocol: 'fipa-request' performative: 'request' contents: ['Meter valor contraoferta'] ;
 	}
 	
 	plan plan_preguntar intention: preguntar {
@@ -160,6 +159,19 @@ species comprador skills: [fipa] control: simple_bdi {
 		}
 	}
 	
+	reflex receive_agree when: !empty(agrees) {
+		write name + "receive_agree: Vendedor esta de acuerdo con mi contraoferta";
+		// Ahora toca comprar
+		// Actualizar nuevo precio del producto
+		//message agree_received <- agrees at 0;
+		loop i over: agrees {
+			write 'receive_agree message with content: ' + string(i.contents);
+		}
+		
+		do remove_desire(negociar);
+		do add_desire(comprar);
+	}
+	
 	aspect name:comprador_aspect {		
 		draw geometry:circle(33.3/size) color:owner_color;
 		// color will be red when the owner has no beer to drink
@@ -169,6 +181,14 @@ species comprador skills: [fipa] control: simple_bdi {
 		draw string("C") color: #black font:font("Helvetica", 15 , #plain) at: punto2;
 	}
 }
+
+
+
+
+
+
+
+
 
 species vendedor skills: [fipa] control: simple_bdi {
 	rgb owner_color;
@@ -200,7 +220,7 @@ species vendedor skills: [fipa] control: simple_bdi {
 		
 	// Comprador pregunta info productos
 	reflex receive_inform when: !empty(informs) {
-		write name + ' receive_inform';
+		write name + ' receive_inform: Informando precio pescado';
 		message informDelComprador <- informs at 0;
 		do inform message: informDelComprador contents: ['Precio del pescado: 30!'] ;
 	}
@@ -212,6 +232,19 @@ species vendedor skills: [fipa] control: simple_bdi {
 		do accept_proposal message: proposalFromInitiator contents: ['OK! It \'s hot today!'] ;
 	}
 	
+	
+	reflex receive_requests when: !(empty(requests)) {
+		write name + ' receive_requests: Recibida contraoferta del pescado';
+		
+		message requestContraofertaDelComprador <- requests at 0;
+		
+		// Valorar si aceptar contraoferta
+		bool aceptar_contraoferta <- true;
+		if(aceptar_contraoferta) {
+			do agree message: requestContraofertaDelComprador contents: requestContraofertaDelComprador.contents;
+		}
+		//do refuse message: requestTraerFromOwner contents: requestTraerFromOwner.contents;
+	}
 		
 	aspect name:vendedor_aspect {		
 		draw geometry:circle(33.3/size) color:owner_color;
