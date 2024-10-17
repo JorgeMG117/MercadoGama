@@ -29,6 +29,8 @@ global torus:false {
 // - Predicates to be used in the content of messages:
 	string contraoferta_recibida <- "Contraoferta_Recibida";
 	string oferta_recibida <-  "Oferta_Recibida";
+	string aceptar_contraoferta <- "Aceptar_Contraoferta";
+	string aceptar_compra <- "Aceptar_Compra";
 // - Concepts to be linked with actions and predicates of the messages:
 	string num_beers <- "Number_Beers";
 		 	
@@ -179,16 +181,25 @@ species comprador skills: [fipa] control: simple_bdi {
 	}
 	
 	reflex receive_agree when: !empty(agrees) {
-		write name + "receive_agree: Vendedor esta de acuerdo con mi contraoferta";
+		//write name + "receive_agree: Vendedor esta de acuerdo con mi contraoferta";
+		
 		// Ahora toca comprar
 		// Actualizar nuevo precio del producto
-		//message agree_received <- agrees at 0;
+		message agree_received <- agrees at 0;
 		loop i over: agrees {
-			write 'receive_agree message with content: ' + string(i.contents);
+			write name + ' receive_agree message with content: ' + string(i.contents);
 		}
 		
-		do remove_desire(negociar);
-		do add_desire(comprar);
+		if (agree_received.contents[0] = aceptar_compra) {
+			do remove_desire(comprar);
+		}
+		
+		if (agree_received.contents[0] = aceptar_contraoferta) {
+			do remove_desire(negociar);
+			do add_desire(comprar);
+		}
+		
+		
 	}
 	
 	aspect name:comprador_aspect {		
@@ -244,12 +255,12 @@ species vendedor skills: [fipa] control: simple_bdi {
 		do inform message: informDelComprador contents: ['Precio del pescado: 30!'] ;
 	}
 	
-	reflex accept_proposal when: !(empty(proposes)) {
-		write name + ' accept_proposal';
-		message proposalFromInitiator <- proposes at 0;
-		
-		do accept_proposal message: proposalFromInitiator contents: ['OK! It \'s hot today!'] ;
-	}
+//	reflex accept_proposal when: !(empty(proposes)) {
+//		write name + ' accept_proposal';
+//		message proposalFromInitiator <- proposes at 0;
+//		
+//		do accept_proposal message: proposalFromInitiator contents: ['OK! It \'s hot today!'] ;
+//	}
 	
 	
 	reflex receive_requests when: !(empty(requests)) {
@@ -265,9 +276,9 @@ species vendedor skills: [fipa] control: simple_bdi {
 			write name + ' receive_requests: Recibida contraoferta del pescado: ' + conceptos[0];
 		
 			// Valorar si aceptar contraoferta
-			bool aceptar_contraoferta <- true;
-			if(aceptar_contraoferta) {
-				do agree message: requestContraofertaDelComprador contents: requestContraofertaDelComprador.contents;
+			bool b_aceptar_contraoferta <- true;
+			if(b_aceptar_contraoferta) {
+				do agree message: requestContraofertaDelComprador contents: [aceptar_contraoferta];
 			}
 			//do refuse message: requestTraerFromOwner contents: requestTraerFromOwner.contents;
 		}
@@ -278,7 +289,7 @@ species vendedor skills: [fipa] control: simple_bdi {
 			
 			// Añadir el dinero
 			// Restar el producto
-			do agree message: requestContraofertaDelComprador contents: requestContraofertaDelComprador.contents;
+			do agree message: requestContraofertaDelComprador contents: [aceptar_compra];
 		}
 		
 	
