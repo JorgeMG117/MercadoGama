@@ -27,7 +27,8 @@ global torus:false {
 // - Actions to be used in the content of messages:
 	//string give_beer <- "Give_Beer";
 // - Predicates to be used in the content of messages:
-	//string given_beer <- "Given_Beer";
+	string contraoferta_recibida <- "Contraoferta_Recibida";
+	string oferta_recibida <-  "Oferta_Recibida";
 // - Concepts to be linked with actions and predicates of the messages:
 	string num_beers <- "Number_Beers";
 		 	
@@ -94,8 +95,10 @@ species comprador skills: [fipa] control: simple_bdi {
 	rgb thristy_color<- #red;
 	rgb drinking_color <- #green;
 	bool perceived <- false;
+	
 	// beliefs of the owner
 	string amount_money <- "amount_money";
+	int precio_producto <- 0;
 	// desires of the comprador
 	predicate negociar <- new_predicate("negociar");
 	predicate comprar <- new_predicate("comprar");
@@ -130,6 +133,15 @@ species comprador skills: [fipa] control: simple_bdi {
 	plan plan_comprar intention: comprar {
 		write name + "Ahora toca comprar";
 		
+		//request al vendedor
+		// tenemos el precio establecido en una variable
+		list contenido <- [];
+		string predicado <- oferta_recibida;
+		list lista_conceptos <- [precio_producto];
+		pair contenido_pair <- predicado::lista_conceptos;
+		add contenido_pair to:contenido;
+		
+		do start_conversation to: [vendedor_actual] protocol: 'fipa-request' performative: 'request' contents: contenido ;
 	}
 	
 	plan plan_negociar intention: negociar {
@@ -141,7 +153,14 @@ species comprador skills: [fipa] control: simple_bdi {
 		
 		//si quiero
 			//escribir proposal (proponer_contraoferta)
-		do start_conversation to: [vendedor_actual] protocol: 'fipa-request' performative: 'request' contents: ['Meter valor contraoferta'] ;
+
+		list contenido <- [];
+		string predicado <- contraoferta_recibida;
+		list lista_conceptos <- [precio_contraoferta];
+		pair contenido_pair <- predicado::lista_conceptos;
+		add contenido_pair to:contenido;
+			
+		do start_conversation to: [vendedor_actual] protocol: 'fipa-request' performative: 'request' contents: contenido ;
 	}
 	
 	plan plan_preguntar intention: preguntar {
@@ -234,16 +253,35 @@ species vendedor skills: [fipa] control: simple_bdi {
 	
 	
 	reflex receive_requests when: !(empty(requests)) {
-		write name + ' receive_requests: Recibida contraoferta del pescado';
-		
 		message requestContraofertaDelComprador <- requests at 0;
 		
-		// Valorar si aceptar contraoferta
-		bool aceptar_contraoferta <- true;
-		if(aceptar_contraoferta) {
+		list contentlist <- list(requestContraofertaDelComprador.contents);
+		map content_map <- contentlist at 0;
+		pair content_pair <- content_map.pairs at 0;
+		string predicado <- string(content_pair.key);
+		list conceptos <- list(content_pair.value);
+		
+		if (predicado = contraoferta_recibida) {
+			write name + ' receive_requests: Recibida contraoferta del pescado: ' + conceptos[0];
+		
+			// Valorar si aceptar contraoferta
+			bool aceptar_contraoferta <- true;
+			if(aceptar_contraoferta) {
+				do agree message: requestContraofertaDelComprador contents: requestContraofertaDelComprador.contents;
+			}
+			//do refuse message: requestTraerFromOwner contents: requestTraerFromOwner.contents;
+		}
+		
+		if (predicado = oferta_recibida) {
+			// Checkear es el valor esperado
+			write "Compra realizada";
+			
+			// Añadir el dinero
+			// Restar el producto
 			do agree message: requestContraofertaDelComprador contents: requestContraofertaDelComprador.contents;
 		}
-		//do refuse message: requestTraerFromOwner contents: requestTraerFromOwner.contents;
+		
+	
 	}
 		
 	aspect name:vendedor_aspect {		
