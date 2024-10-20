@@ -4,11 +4,7 @@
 * Author: jorge
 * Tags: 
 */
-
-
 model Mercado
-
-/* Insert your model definition here */
 
 // torus:false means the extremes of the grid are not connected
 global torus:false { 
@@ -16,10 +12,16 @@ global torus:false {
 	int cycles;
 	int cycles_to_pause <- 5;
 	bool game_over <- false;
+	
+	float step <- 10#mn;
+    geometry shape <- square(20 #km);
+	
 //  Parameters setup:
-	int initial_beers <- 1;
+
 	int n_compradores <- 1;
 	int n_vendedores <- 1;
+	list<string> productos_disponibles <- ["plátano", "cereza", "langosta", "manzana", "pera", "uva", "mango", "naranja"];
+	
 // Shared knowledge by all agents that belong to the ontology:
 // - Roles:
 	string Comprador_role <- "Comprador";
@@ -29,26 +31,30 @@ global torus:false {
 // - Predicates to be used in the content of messages:
 	string contraoferta_recibida <- "Contraoferta_Recibida";
 	string oferta_recibida <-  "Oferta_Recibida";
+	string inventario_recibido <-  "Inventario_Recibido";
 	string aceptar_contraoferta <- "Aceptar_Contraoferta";
 	string aceptar_compra <- "Aceptar_Compra";
+	
+	string localizacion_de_comprador <- "localizacion_de_comprador";
+	predicate localizacion_comprador <- new_predicate(localizacion_de_comprador) ;
 // - Concepts to be linked with actions and predicates of the messages:
-	string num_beers <- "Number_Beers";
+	//string num_beers <- "Number_Beers";
 		 	
 	init {
 		// creation of the agents in the system
-			create species:df number:1;
-			create species:comprador number:1;
-			create species:vendedor number:1;
+			//create species:df number:1;
+			create species:comprador number:n_compradores;
+			create species:vendedor number:n_vendedores;
 	}
 	reflex counting {
 		cycles <- cycles+1;
 	}
 	// allow us to set recurrent pauses to observe step by step the behaviour of the system
-	reflex pausing when: cycles = cycles_to_pause {
-		write "pausing simulation";
-		cycles <- 0;
-		do pause;
-	}
+//	reflex pausing when: cycles = cycles_to_pause {
+//		write "pausing simulation";
+//		cycles <- 0;
+//		do pause;
+//	}
 	// to end the simulation
 	reflex halting when: game_over {
 		write "halting simulation";
@@ -59,31 +65,31 @@ global torus:false {
 
 
 // the grid of cells with diagonals as neighbors
-grid my_grid width:size height:size neighbors:8 {
-	
-}
+//grid my_grid width:size height:size neighbors:8 {
+//	
+//}
 
 
 // directory facilitator to allow agents meet first time from the role they used when they register
-species df {
-  list<pair> yellow_pages <- []; 
-  // to register an agent according to his role
-  bool register(string the_role, agent the_agent) {
-  	bool registered;
-  	add the_role::the_agent to: yellow_pages;
-  	return registered;
-  }
-  // to search agents accoding to the role
-  list search(string the_role) {
-  	list<agent> found_ones <- [];
-	loop i from:0 to: (length(yellow_pages)-1) {
-		pair candidate <- yellow_pages at i;
-		if (candidate.key = the_role) {
-			add item:candidate.value to: found_ones; }
-		} 
-	return found_ones;	
-	} 
-}
+//species df {
+//  list<pair> yellow_pages <- []; 
+//  // to register an agent according to his role
+//  bool register(string the_role, agent the_agent) {
+//  	bool registered;
+//  	add the_role::the_agent to: yellow_pages;
+//  	return registered;
+//  }
+//  // to search agents accoding to the role
+//  list search(string the_role) {
+//  	list<agent> found_ones <- [];
+//	loop i from:0 to: (length(yellow_pages)-1) {
+//		pair candidate <- yellow_pages at i;
+//		if (candidate.key = the_role) {
+//			add item:candidate.value to: found_ones; }
+//		} 
+//	return found_ones;	
+//	} 
+//}
 
 /*
  * Desires:
@@ -92,56 +98,95 @@ species df {
  * 	buy_product
  */
 
-species comprador skills: [fipa] control: simple_bdi {
+species comprador skills: [fipa, moving] control: simple_bdi {
 	rgb owner_color;
 	rgb thristy_color<- #red;
 	rgb drinking_color <- #green;
 	bool perceived <- false;
 	
+	float view_dist<-1000.0;
+    float speed <- 2#km/#h;
+    rgb my_color <- rnd_color(255);
+    point target;
+	
 	// beliefs of the owner
 	string amount_money <- "amount_money";
 	int precio_producto <- 0;
+	
+	int presupuesto;
+	map<string, int> necesidades;
+	//list<string, int> productos_obtenidos;
+    string estrategia_negociacion;
+    bool en_coalicion;
+    map<string, float> precio_conocido;
+    
+    map<string, int> vendedor_inventario;
+    map<string, int> vendedor_precios;
+    map <string, int> productos_comprar; // Productos que despues de preguntar al vendedor va a comprar el comprador
+	
 	// desires of the comprador
+	//TODO Igual habria que meter estos en global
 	predicate negociar <- new_predicate("negociar");
 	predicate comprar <- new_predicate("comprar");
 	predicate preguntar <- new_predicate("preguntar");
+	predicate buscar <- new_predicate("buscar") ;
 	//list<robot> my_robots;
 	
 	message requestInfoFromVendedor;
 	
-	list<string> my_products;
 	vendedor vendedor_actual;
 	
 	init {
 		owner_color <- drinking_color;
-		location <- {5, 5};
+		//location <- {5, 5};
 		
-
-		//do add_desire(comprar);
-		do add_desire(preguntar);
-	}
+		presupuesto <- rnd(100, 500); // Presupuesto entre 100 y 500
+		int num_necesidades <- rnd(1, 4);
+        //necesidades <- ["plátano", "cereza", "langosta"];
+        list<string> productos_seleccionados <- shuffle(productos_disponibles)[0::num_necesidades];
+        loop product over: productos_seleccionados {
+	        int desired_quantity <- rnd(1, 5); // Assign a random desired quantity
+	        necesidades[product] <- desired_quantity;
+	    }
+	    
+        //estrategia_negociacion <- "agresiva"; // Puede ser "agresiva" o "conservadora"
+        estrategia_negociacion <- one_of(["agresiva", "conservadora"]);
+        en_coalicion <- false;
 		
-	reflex receive_inform when: !empty(informs) {
-		write name + ' receive_inform';
-		loop i over: informs {
-			write 'receive_inform message with content: ' + string(i.contents);
-		}
-		
-		do remove_desire(preguntar);
-		// Igual añadir un belief del precio??
-		do add_desire(negociar);
+		write name + " Necesidades: " + necesidades;
+		write name + " Presupuesto: " + presupuesto;
+		do add_desire(buscar);
 	}
 	
+	perceive when: !has_belief(localizacion_comprador) target: vendedor where (each.quantity > 0) in: view_dist {
+		focus id: localizacion_de_comprador var:location;
+		ask myself {
+			// write "Vendedor encontrado";
+		    // do remove_intention(buscar, false);
+		    do remove_desire(buscar);
+		    do add_desire(preguntar);
+		    do add_belief(localizacion_comprador);//TODO No entiendo muy bien que es esto, entonces tenemos el location
+		}
+    }
+    
+	
+	plan lets_wander intention: buscar {
+		do wander;
+    }
+    
+    
+	// Enviamos al vendedor productos que le queremos comprar (productos_comprar)
 	plan plan_comprar intention: comprar {
-		write name + "Ahora toca comprar";
+		//write name + ": Ahora toca comprar";
 		
 		//request al vendedor
 		// tenemos el precio establecido en una variable
 		list contenido <- [];
 		string predicado <- oferta_recibida;
-		list lista_conceptos <- [precio_producto];
+		list lista_conceptos <- [productos_comprar];
 		pair contenido_pair <- predicado::lista_conceptos;
 		add contenido_pair to:contenido;
+		
 		
 		do start_conversation to: [vendedor_actual] protocol: 'fipa-request' performative: 'request' contents: contenido ;
 	}
@@ -167,16 +212,85 @@ species comprador skills: [fipa] control: simple_bdi {
 	
 	plan plan_preguntar intention: preguntar {
 		vendedor_actual <- vendedor at_distance(1000000) at 0;
+		//vendedor_actual <- vendedor first_with (target = each.location);
 		
 		//do start_conversation to: [vendedor_actual] protocol: 'fipa-propose' performative: 'propose' contents: ['Go swimming?'] ;
 		//do start_conversation to: [the_fridge] protocol: 'fipa-request' performative: 'request' contents: contenido ;	
 		do start_conversation to: [vendedor_actual] protocol: 'no-protocol' performative: 'inform' contents: [''] ;
 	}
 	
+	reflex receive_inform when: !empty(informs) {
+		// Vendedor envia inventario y precio
+		// write name + ' receive_inform';
+//		loop i over: informs {
+//			write name + ' receive_inform message with content: ' + string(i.contents);
+//		}
+		
+		// Analizar productos y precios 
+		message informInventarioDelVendedor <- informs at 0;
+		
+		list contentlist <- list(informInventarioDelVendedor.contents);
+		map content_map <- contentlist at 0;
+		pair content_pair <- content_map.pairs at 0;
+		
+		string predicado <- string(content_pair.key);
+		list conceptos <- list(content_pair.value);
+		
+		vendedor_inventario <- conceptos[0];
+		vendedor_precios <- conceptos[1];
+		
+		do remove_desire(preguntar);
+		
+		if (empty(necesidades)) {//TODO añadir que se acaba de comprar cuando se queda sin dinero o necesidades
+            write name + ": No needed products available from vendedor.";
+            // do add_desire(buscar); 
+        } else {
+        	float total_cost <- 0.0;
+        	
+	        loop product over: necesidades.keys {
+	            int desired_quantity <- necesidades[product];
+	
+	            // Check if the product is available in the vendedor's inventory
+	            if (vendedor_inventario contains_key product) {
+	                int available_quantity <- vendedor_inventario[product];
+	                int price <- vendedor_precios[product];
+	
+	                // Determine the maximum quantity we can afford and that is available
+	                int max_affordable_quantity <- presupuesto div price;
+	                int quantity_to_buy <- min(desired_quantity, max_affordable_quantity, available_quantity);
+	
+	                if (quantity_to_buy > 0) {
+	                    productos_comprar[product] <- quantity_to_buy;
+	                    total_cost <- total_cost + (price * quantity_to_buy);
+	                }
+	            } else {
+	                write name + ": Product " + product + " not available from vendedor.";
+	            }
+	        }
+	
+	        // Decide whether to make a counteroffer if total_cost exceeds presupuesto
+	        if (total_cost > presupuesto) {
+	            write name + ": Total cost exceeds presupuesto. Considering counteroffer.";
+	            do add_desire(negociar);
+	        } else if (!empty(productos_comprar)) {
+	        	write name + ": Va a comprar lo siguente: " + productos_comprar;
+	            do add_desire(comprar);
+	        } else {
+	            write name + ": Cannot buy any products at current prices.";
+	            do add_desire(buscar); // Go back to searching
+	        }
+        }
+		
+		
+		
+		// Igual añadir un belief del precio??
+		
+	}
+	
 	reflex read_accept_proposals when: !(empty(accept_proposals)) {
-		write name + ' receives accept_proposal messages';
+		//write name + ' receives accept_proposal messages';
 		loop i over: accept_proposals {
-			write 'accept_proposal message with content: ' + string(i.contents);
+			write name + ' accept_proposal message with content: ' + string(i.contents);
 		}
 	}
 	
@@ -191,7 +305,37 @@ species comprador skills: [fipa] control: simple_bdi {
 		}
 		
 		if (agree_received.contents[0] = aceptar_compra) {
-			do remove_desire(comprar);
+			// TODO Quitarme dinero, y necesidades
+			//total_cost
+			//productos_comprar
+			loop product over: productos_comprar.keys {
+	            int quantity_bought <- productos_comprar[product];
+	            int price <- vendedor_precios[product];
+	
+	            // Deduct from presupuesto
+	            presupuesto <- presupuesto - (price * quantity_bought);
+	
+	            // Update necesidades
+	            int remaining_quantity <- necesidades[product] - quantity_bought;
+	            if (remaining_quantity > 0) {
+	                necesidades[product] <- remaining_quantity;
+	            } else {
+	                //necesidades delete product; TODO
+	                necesidades[product] <- 0;
+	            }
+	        }
+	
+	        write name + ": Purchase successful. Remaining presupuesto: " + string(presupuesto);
+	        // Decide next action
+	        if (empty(necesidades)) {
+	            write name + ": All needs fulfilled.";
+	            // Optionally, stop or add other desires
+	        } else {
+	            //do add_desire(buscar); // Continue searching for remaining needs
+	        }
+	        
+	        do remove_desire(comprar);
+			
 		}
 		
 		if (agree_received.contents[0] = aceptar_contraoferta) {
@@ -202,14 +346,18 @@ species comprador skills: [fipa] control: simple_bdi {
 		
 	}
 	
-	aspect name:comprador_aspect {		
-		draw geometry:circle(33.3/size) color:owner_color;
-		// color will be red when the owner has no beer to drink
-		// green when it is drinking
-		point punto <- location;
-		point punto2 <- {punto.x-1, punto.y+1};
-		draw string("C") color: #black font:font("Helvetica", 15 , #plain) at: punto2;
-	}
+//	aspect name:comprador_aspect {		
+//		draw geometry:circle(33.3/size) color:owner_color;
+//		// color will be red when the owner has no beer to drink
+//		// green when it is drinking
+//		point punto <- location;
+//		point punto2 <- {punto.x-1, punto.y+1};
+//		draw string("C") color: #black font:font("Helvetica", 15 , #plain) at: punto2;
+//	}
+	aspect default {
+      draw circle(200) color: my_color border: #black;
+      draw circle(view_dist) color: my_color border: #black wireframe: true;
+    }
 }
 
 
@@ -221,21 +369,46 @@ species comprador skills: [fipa] control: simple_bdi {
 
 
 species vendedor skills: [fipa] control: simple_bdi {
-	rgb owner_color;
-	rgb thristy_color<- #red;
-	rgb drinking_color <- #green;
+//	rgb owner_color;
+//	rgb thristy_color<- #red;
+//	rgb drinking_color <- #green;
 	bool perceived <- false;
 	
 	// beliefs of the owner
-	string inventario <- "pescado";
+	
+	map<string, int> inventario;
+    map<string, int> precios;
+    string estrategia_precio;
+    list ventas_realizadas;
+    
+    int quantity <- 1; //TODO Cambiar por el valor real de cuantos productos tiene 
 
 	// desires of the owner
 	//predicate pedir_traer <- new_predicate("pedir_traer");
 	
 	//list<robot> my_robots;
 	init {
-		owner_color <- drinking_color;
-		location <- {10*size-5, 10*size-5};
+		//owner_color <- drinking_color;
+		//location <- {10*size-5, 10*size-5};
+		
+		int num_productos <- rnd(50, 100);
+		string producto <- shuffle(productos_disponibles)[0];
+		int precio <- rnd(1, 30);
+		/*
+		 * Opciones:
+		 * 	Mercado tiene un solo producto
+		 * 	Mercado tiene varios productos
+		 * 
+		 * 	Vendedor detecta mercado en base al producto que pasa cerca de su zona de vision (estilo mineros)
+		 * 	Vendedor sabe de primeras donde tiene que ir para comprar cierto producto. -> En este caso veo mas que cada Mercado
+		 * 				venda solo un producto
+		 */
+		inventario <- ["plátano"::50, "cereza"::100, "langosta"::5];
+        precios <- ["plátano"::2.0, "cereza"::1.50, "langosta"::200.0];
+        
+        estrategia_precio <- "dinamica"; // Puede ser "fija" o "dinamica"
+        
+        write name + " Inventario: " + inventario + " Precios: " + precios;
 		/* 
 		predicate pred_no_drunk <- new_predicate(no_drunk); 
 		do add_belief (pred_no_drunk);
@@ -250,9 +423,17 @@ species vendedor skills: [fipa] control: simple_bdi {
 		
 	// Comprador pregunta info productos
 	reflex receive_inform when: !empty(informs) {
-		write name + ' receive_inform: Informando precio pescado';
+		write name + ' receive_inform: Me estan preguntando por mis productos';
 		message informDelComprador <- informs at 0;
-		do inform message: informDelComprador contents: ['Precio del pescado: 30!'] ;
+		
+		// Enviar listado de productos y precio
+		list contenido <- [];
+		string predicado <- inventario_recibido;
+		list lista_conceptos <- [inventario, precios];
+		pair contenido_pair <- predicado::lista_conceptos;
+		add contenido_pair to:contenido;
+		
+		do inform message: informDelComprador contents: contenido ;
 	}
 	
 //	reflex accept_proposal when: !(empty(proposes)) {
@@ -285,38 +466,86 @@ species vendedor skills: [fipa] control: simple_bdi {
 		
 		if (predicado = oferta_recibida) {
 			// Checkear es el valor esperado
-			write "Compra realizada";
+			write name + ": Recibida oferta de compra de " + string(requestContraofertaDelComprador.sender);
 			
-			// Añadir el dinero
-			// Restar el producto
-			do agree message: requestContraofertaDelComprador contents: [aceptar_compra];
+			
+			// Procesar la compra
+	        bool exito_compra <- true;
+	        map <string, int> productos <- conceptos[0];
+
+	        loop product over: productos.keys {
+	            int requested_quantity <- productos[product];
+	            if (inventario contains_key product and inventario[product] >= requested_quantity) {
+	                // Update inventory
+	                inventario[product] <- inventario[product] - requested_quantity;
+	                // Optionally, update sales records
+	                write name + ": Sold " + string(requested_quantity) + " units of " + product + " to " + string(requestContraofertaDelComprador.sender);
+	            } else {
+	                // Not enough stock
+	                write name + ": Not enough stock of " + product + " for " + string(requestContraofertaDelComprador.sender);
+	                exito_compra <- false;
+	                // Send failure message
+	                do failure message: requestContraofertaDelComprador contents: ["Insufficient stock for " + product];
+	                break; // Exit the loop if any product is unavailable
+	            }
+	        }
+	
+	        if (exito_compra) {
+	            // Send confirmation
+	            // do inform to: [comprador_agent] contents: ["Purchase confirmed"];
+	            // TODO Añadir el dinero
+				// Restar el producto
+				do agree message: requestContraofertaDelComprador contents: [aceptar_compra];
+	        }
+			
+			
 		}
 		
 	
 	}
 		
-	aspect name:vendedor_aspect {		
-		draw geometry:circle(33.3/size) color:owner_color;
-		// color will be red when the owner has no beer to drink
-		// green when it is drinking
-		point punto <- location;
-		point punto2 <- {punto.x-1, punto.y+1};
-		draw string("V") color: #black font:font("Helvetica", 15 , #plain) at: punto2;
-	}
+//	aspect name:vendedor_aspect {		
+//		draw geometry:circle(33.3/size) color:owner_color;
+//		// color will be red when the owner has no beer to drink
+//		// green when it is drinking
+//		point punto <- location;
+//		point punto2 <- {punto.x-1, punto.y+1};
+//		draw string("V") color: #black font:font("Helvetica", 15 , #plain) at: punto2;
+//	}
+	aspect default {
+      draw square(1000) color: #black ;
+    }
 }
 
 
 
-experiment morebeers type: gui {
-// parameters
-	//parameter "Initial sips of the human (positive integer):" var: initial_sips category: "Human";
+//experiment morebeers type: gui {
+//// parameters
+//	//parameter "Initial sips of the human (positive integer):" var: initial_sips category: "Human";
+//
+//	output {
+//		display my_display type: java2D {
+//			grid my_grid border: rgb("black");
+//			species comprador aspect:comprador_aspect;
+//			species vendedor aspect:vendedor_aspect;
+//			}
+//	}
+//}
 
-	output {
-		display my_display type: java2D {
-			grid my_grid border: rgb("black");
-			species comprador aspect:comprador_aspect;
-			species vendedor aspect:vendedor_aspect;
-			}
-	}
+experiment MercadoBdi type: gui {
+
+    output {
+        display map type: 3d {
+            species vendedor ;
+            species comprador;
+        }
+        
+//        display chart type: 2d {
+//			chart "Money" type: series {
+//				datalist legend: miner accumulate each.name value: miner accumulate each.gold_sold color: miner accumulate each.my_color;
+//			}
+//		}
+        
+    }
 }
 	
