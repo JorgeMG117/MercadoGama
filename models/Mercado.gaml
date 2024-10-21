@@ -19,7 +19,7 @@ global torus:false {
 //  Parameters setup:
 
 	int n_compradores <- 1;
-	int n_vendedores <- 1;
+	int n_vendedores <- 2;
 	list<string> productos_disponibles <- ["plátano", "cereza", "langosta", "manzana", "pera", "uva", "mango", "naranja"];
 	
 // Shared knowledge by all agents that belong to the ontology:
@@ -36,6 +36,7 @@ global torus:false {
 	string aceptar_compra <- "Aceptar_Compra";
 	
 	string localizacion_de_comprador <- "localizacion_de_comprador";
+	string empty_mine_location <- "empty_mine_location";
 	predicate localizacion_comprador <- new_predicate(localizacion_de_comprador) ;
 // - Concepts to be linked with actions and predicates of the messages:
 	//string num_beers <- "Number_Beers";
@@ -130,6 +131,9 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	predicate comprar <- new_predicate("comprar");
 	predicate preguntar <- new_predicate("preguntar");
 	predicate buscar <- new_predicate("buscar") ;
+	
+	predicate interactuar_con_vendedor <- new_predicate("interactuar_con_vendedor");
+	
 	//list<robot> my_robots;
 	
 	message requestInfoFromVendedor;
@@ -158,21 +162,81 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 		do add_desire(buscar);
 	}
 	
-	perceive when: !has_belief(localizacion_comprador) target: vendedor where (each.quantity > 0) in: view_dist {
-		focus id: localizacion_de_comprador var:location;
-		ask myself {
-			// write "Vendedor encontrado";
-		    // do remove_intention(buscar, false);
-		    do remove_desire(buscar);
-		    do add_desire(preguntar);
-		    do add_belief(localizacion_comprador);//TODO No entiendo muy bien que es esto, entonces tenemos el location
-		}
+	list<point> vendedores_visitados;
+	
+    
+    perceive target: vendedor where (each.abierto) in: view_dist {
+        focus id: localizacion_de_comprador var:location;
+        ask myself {
+        	bool nearby_visited_vendedor_found <- false;
+
+			// Loop over the list of visited vendedores
+			loop visited_location over: vendedores_visitados {
+			    if (location distance_to visited_location < view_dist) {
+			        nearby_visited_vendedor_found <- true;
+			        break; // Exit the loop since we found a nearby visited vendedor
+			    }
+			}
+        	
+        	if (!nearby_visited_vendedor_found) {
+        		
+        		do remove_desire(buscar);
+		    
+		    	do add_desire(interactuar_con_vendedor);
+	        }
+        }
+
     }
+    
     
 	
 	plan lets_wander intention: buscar {
 		do wander;
     }
+    
+    
+    plan interactuar_con_vendedor intention: interactuar_con_vendedor {
+	    if (target = nil) {
+	        // Collect possible vendedores from beliefs
+	        list<point> vendedores_posibles <- get_beliefs_with_name(localizacion_de_comprador) collect (
+	            point(get_predicate(mental_state(each)).values["location_value"])
+	        );
+	        list<point> vendedores_cerrados <- get_beliefs_with_name(empty_mine_location) collect (point(get_predicate(mental_state (each)).values["location_value"]));
+		
+	        // Subtract vendedores already interacted with
+	        vendedores_posibles <- vendedores_posibles - vendedores_cerrados; // Adjust this as per your code
+	
+	        if (empty(vendedores_posibles)) {
+	            do remove_intention(interactuar_con_vendedor, true);
+	            do add_desire(buscar); // Continue searching
+	        } else {
+	            target <- vendedores_posibles with_min_of (each distance_to self);
+	        }
+	    } else {
+	        do goto target: target;
+	        if (location = target) {
+	            vendedor_actual <- vendedor first_with (each.location = location);
+	            
+	           	vendedores_visitados <+ location;
+	            
+	            //add vendedor_actual to: vendedores_interacted;
+	            
+	            do remove_desire(interactuar_con_vendedor);
+	            do add_desire(preguntar);
+	           
+//	            if (empty(necesidades)) {
+//	                write name + ": All needs fulfilled.";
+//	                // Optionally, stop or add other desires
+//	            } else {
+//	                do add_desire(buscar); // Continue searching for remaining needs
+//	            }
+	            
+	            target <- nil;
+	            
+	        }
+	    }
+	}
+    
     
     
 	// Enviamos al vendedor productos que le queremos comprar (productos_comprar)
@@ -211,8 +275,9 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	}
 	
 	plan plan_preguntar intention: preguntar {
-		vendedor_actual <- vendedor at_distance(1000000) at 0;
+		//vendedor_actual <- vendedor at_distance(1000000) at 0;
 		//vendedor_actual <- vendedor first_with (target = each.location);
+		write "AQUI: " + vendedor_actual;
 		
 		//do start_conversation to: [vendedor_actual] protocol: 'fipa-propose' performative: 'propose' contents: ['Go swimming?'] ;
 		//do start_conversation to: [the_fridge] protocol: 'fipa-request' performative: 'request' contents: contenido ;	
@@ -271,7 +336,7 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	        // Decide whether to make a counteroffer if total_cost exceeds presupuesto
 	        if (total_cost > presupuesto) {
 	            write name + ": Total cost exceeds presupuesto. Considering counteroffer.";
-	            do add_desire(negociar);
+	            //do add_desire(negociar);
 	        } else if (!empty(productos_comprar)) {
 	        	write name + ": Va a comprar lo siguente: " + productos_comprar;
 	            do add_desire(comprar);
@@ -305,9 +370,6 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 		}
 		
 		if (agree_received.contents[0] = aceptar_compra) {
-			// TODO Quitarme dinero, y necesidades
-			//total_cost
-			//productos_comprar
 			loop product over: productos_comprar.keys {
 	            int quantity_bought <- productos_comprar[product];
 	            int price <- vendedor_precios[product];
@@ -320,8 +382,7 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	            if (remaining_quantity > 0) {
 	                necesidades[product] <- remaining_quantity;
 	            } else {
-	                //necesidades delete product; TODO
-	                necesidades[product] <- 0;
+	                remove product from: necesidades;
 	            }
 	        }
 	
@@ -331,7 +392,7 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	            write name + ": All needs fulfilled.";
 	            // Optionally, stop or add other desires
 	        } else {
-	            //do add_desire(buscar); // Continue searching for remaining needs
+	            do add_desire(buscar); // Continue searching for remaining needs
 	        }
 	        
 	        do remove_desire(comprar);
@@ -381,8 +442,7 @@ species vendedor skills: [fipa] control: simple_bdi {
     string estrategia_precio;
     list ventas_realizadas;
     
-    int quantity <- 1; //TODO Cambiar por el valor real de cuantos productos tiene 
-
+	bool abierto <- true;
 	// desires of the owner
 	//predicate pedir_traer <- new_predicate("pedir_traer");
 	
@@ -391,9 +451,7 @@ species vendedor skills: [fipa] control: simple_bdi {
 		//owner_color <- drinking_color;
 		//location <- {10*size-5, 10*size-5};
 		
-		int num_productos <- rnd(50, 100);
-		string producto <- shuffle(productos_disponibles)[0];
-		int precio <- rnd(1, 30);
+		
 		/*
 		 * Opciones:
 		 * 	Mercado tiene un solo producto
@@ -403,8 +461,19 @@ species vendedor skills: [fipa] control: simple_bdi {
 		 * 	Vendedor sabe de primeras donde tiene que ir para comprar cierto producto. -> En este caso veo mas que cada Mercado
 		 * 				venda solo un producto
 		 */
-		inventario <- ["plátano"::50, "cereza"::100, "langosta"::5];
-        precios <- ["plátano"::2.0, "cereza"::1.50, "langosta"::200.0];
+//		inventario <- ["plátano"::50, "cereza"::100, "langosta"::5];
+//        precios <- ["plátano"::2.0, "cereza"::1.50, "langosta"::200.0];
+        
+        int num_productos <- rnd(1, length(productos_disponibles)); // Random number of products to sell
+        list<string> selected_products <- shuffle(productos_disponibles)[0::num_productos];
+
+        loop product over: selected_products {
+            int cantidad <- rnd(10, 100); // Random quantity between 10 and 100
+            int precio <- rnd(1, 30); // Random price between 1.0 and 30.0
+
+            inventario[product] <- cantidad;
+            precios[product] <- precio;
+        }
         
         estrategia_precio <- "dinamica"; // Puede ser "fija" o "dinamica"
         
@@ -503,6 +572,8 @@ species vendedor skills: [fipa] control: simple_bdi {
 		
 	
 	}
+	
+	//TODO Si vendedor vende todo cierra el puesto
 		
 //	aspect name:vendedor_aspect {		
 //		draw geometry:circle(33.3/size) color:owner_color;
