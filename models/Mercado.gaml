@@ -312,6 +312,7 @@ species comprador skills: [fipa, moving] control: simple_bdi {
         } else {
         	float total_cost <- 0.0;
         	
+        	write "AQUI:"+necesidades.keys;
 	        loop product over: necesidades.keys {
 	            int desired_quantity <- necesidades[product];
 	
@@ -382,10 +383,13 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	            if (remaining_quantity > 0) {
 	                necesidades[product] <- remaining_quantity;
 	            } else {
-	                remove product from: necesidades;
+	                necesidades[] >> product;
 	            }
+	            // write name + " Producto: " + product + " remaining_quantity: " + remaining_quantity;
+	            write name + " Necesidades acutalizadas: " + necesidades;
 	        }
 	
+			productos_comprar[] >>- productos_comprar.keys; // Vaciamos los productos a comprar
 	        write name + ": Purchase successful. Remaining presupuesto: " + string(presupuesto);
 	        // Decide next action
 	        if (empty(necesidades)) {
@@ -441,6 +445,7 @@ species vendedor skills: [fipa] control: simple_bdi {
     map<string, int> precios;
     string estrategia_precio;
     list ventas_realizadas;
+    int dinero;
     
 	bool abierto <- true;
 	// desires of the owner
@@ -541,12 +546,21 @@ species vendedor skills: [fipa] control: simple_bdi {
 			// Procesar la compra
 	        bool exito_compra <- true;
 	        map <string, int> productos <- conceptos[0];
+	        
+	        int posible_dinero <- 0;
 
 	        loop product over: productos.keys {
 	            int requested_quantity <- productos[product];
 	            if (inventario contains_key product and inventario[product] >= requested_quantity) {
-	                // Update inventory
+	                // Actualizar inventario
 	                inventario[product] <- inventario[product] - requested_quantity;
+	                
+	                if (inventario[product] = 0) {		             
+		                inventario[] >> product;
+		            }
+		            
+		            posible_dinero <- posible_dinero + precios[product] * requested_quantity;
+	            
 	                // Optionally, update sales records
 	                write name + ": Sold " + string(requested_quantity) + " units of " + product + " to " + string(requestContraofertaDelComprador.sender);
 	            } else {
@@ -562,7 +576,9 @@ species vendedor skills: [fipa] control: simple_bdi {
 	        if (exito_compra) {
 	            // Send confirmation
 	            // do inform to: [comprador_agent] contents: ["Purchase confirmed"];
-	            // TODO Añadir el dinero
+	            
+	            dinero <- dinero + posible_dinero;
+	            write name + " Dinero actualizado: " + dinero;      
 				// Restar el producto
 				do agree message: requestContraofertaDelComprador contents: [aceptar_compra];
 	        }
