@@ -19,7 +19,7 @@ global torus:false {
 //  Parameters setup:
 
 	int n_compradores <- 1;
-	int n_vendedores <- 2;
+	int n_vendedores <- 1;
 	list<string> productos_disponibles <- ["plátano", "cereza", "langosta", "manzana", "pera", "uva", "mango", "naranja"];
 	
 // Shared knowledge by all agents that belong to the ontology:
@@ -124,6 +124,8 @@ species comprador skills: [fipa, moving] control: simple_bdi {
     map<string, int> vendedor_inventario;
     map<string, int> vendedor_precios;
     map <string, int> productos_comprar; // Productos que despues de preguntar al vendedor va a comprar el comprador
+    map<string, int> precio_maximo;
+    map <string, int> nuevos_precios;
 	
 	// desires of the comprador
 	//TODO Igual habria que meter estos en global
@@ -142,7 +144,7 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	
 	init {
 		owner_color <- drinking_color;
-		//location <- {5, 5};
+		location <- {5, 5};
 		
 		presupuesto <- rnd(100, 500); // Presupuesto entre 100 y 500
 		int num_necesidades <- rnd(1, 4);
@@ -151,7 +153,9 @@ species comprador skills: [fipa, moving] control: simple_bdi {
         loop product over: productos_seleccionados {
 	        int desired_quantity <- rnd(1, 5); // Assign a random desired quantity
 	        necesidades[product] <- desired_quantity;
+	        precio_maximo[product] <- rnd(20, 30);
 	    }
+	    
 	    
         //estrategia_negociacion <- "agresiva"; // Puede ser "agresiva" o "conservadora"
         estrategia_negociacion <- one_of(["agresiva", "conservadora"]);
@@ -255,22 +259,14 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 		do start_conversation to: [vendedor_actual] protocol: 'fipa-request' performative: 'request' contents: contenido ;
 	}
 	
-	plan plan_negociar intention: negociar {
-		// tengo en una variable el precio que me han propuesto
-		// valoro si quiero hacer una contraoferta
-		int precio_recibido <- 30;
-		int precio_contraoferta <- 25;
-		write name + " proponiendo contraoferta: " + precio_contraoferta;
-		
-		//si quiero
-			//escribir proposal (proponer_contraoferta)
-
+	plan plan_negociar intention: negociar {			
 		list contenido <- [];
 		string predicado <- contraoferta_recibida;
-		list lista_conceptos <- [precio_contraoferta];
+		list lista_conceptos <- [productos_comprar, nuevos_precios];
 		pair contenido_pair <- predicado::lista_conceptos;
 		add contenido_pair to:contenido;
-			
+		
+		
 		do start_conversation to: [vendedor_actual] protocol: 'fipa-request' performative: 'request' contents: contenido ;
 	}
 	
@@ -335,9 +331,21 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	        }
 	
 	        // Decide whether to make a counteroffer if total_cost exceeds presupuesto
-	        if (total_cost > presupuesto) {
+	        bool contraofertar <- false;
+		
+			loop product over: productos_comprar.keys {
+				if vendedor_precios[product] > precio_maximo[product] {
+					contraofertar <- true;
+					nuevos_precios[product] <- precio_maximo[product];
+				} else {
+					nuevos_precios[product] <- vendedor_precios[product];
+				}
+			}
+	        
+	        //if (total_cost > presupuesto) {
+	        if (contraofertar) {
 	            write name + ": Total cost exceeds presupuesto. Considering counteroffer.";
-	            //do add_desire(negociar);
+	            do add_desire(negociar);
 	        } else if (!empty(productos_comprar)) {
 	        	write name + ": Va a comprar lo siguente: " + productos_comprar;
 	            do add_desire(comprar);
@@ -369,6 +377,7 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 		loop i over: agrees {
 			write name + ' receive_agree message with content: ' + string(i.contents);
 		}
+		write agree_received;
 		
 		if (agree_received.contents[0] = aceptar_compra) {
 			loop product over: productos_comprar.keys {
@@ -404,11 +413,54 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 		}
 		
 		if (agree_received.contents[0] = aceptar_contraoferta) {
+			write "SAKLDjlkjfslf";
+			loop product over: productos_comprar.keys {
+	            int quantity_bought <- productos_comprar[product];
+	            int price <- nuevos_precios[product];
+	
+	            // Deduct from presupuesto
+	            presupuesto <- presupuesto - (price * quantity_bought);
+	
+	            // Update necesidades
+	            int remaining_quantity <- necesidades[product] - quantity_bought;
+	            if (remaining_quantity > 0) {
+	                necesidades[product] <- remaining_quantity;
+	            } else {
+	                necesidades[] >> product;
+	            }
+	            // write name + " Producto: " + product + " remaining_quantity: " + remaining_quantity;
+	            write name + " Necesidades acutalizadas: " + necesidades;
+	        }
+	
+			productos_comprar[] >>- productos_comprar.keys; // Vaciamos los productos a comprar
+			nuevos_precios[] >>- nuevos_precios.keys;
+	        write name + ": Purchase successful. Remaining presupuesto: " + string(presupuesto);
+	        // Decide next action
+	        if (empty(necesidades)) {
+	            write name + ": All needs fulfilled.";
+	            // Optionally, stop or add other desires
+	        } else {
+	            do add_desire(buscar); // Continue searching for remaining needs
+	        }
+	        
+	        do remove_desire(comprar);
+	        
+	        
+			
+			
+			
 			do remove_desire(negociar);
-			do add_desire(comprar);
+			// do add_desire(comprar);
 		}
 		
 		
+	}
+	
+	
+	reflex receive_failure when: !empty(failures) {
+		message failureFromFridge <- failures[0];
+		write 'Robot receives a failure message from the Fridge with content ' + failureFromFridge.contents;	
+		do remove_desire(negociar);
 	}
 	
 //	aspect name:comprador_aspect {		
@@ -472,9 +524,10 @@ species vendedor skills: [fipa] control: simple_bdi {
         int num_productos <- rnd(1, length(productos_disponibles)); // Random number of products to sell
         list<string> selected_products <- shuffle(productos_disponibles)[0::num_productos];
 
-        loop product over: selected_products {
+        loop product over: selected_products { 
+        	location <- {5, 5};
             int cantidad <- rnd(10, 100); // Random quantity between 10 and 100
-            int precio <- rnd(1, 30); // Random price between 1.0 and 30.0
+            int precio <- rnd(20, 30); // Random price between 1.0 and 30.0
 
             inventario[product] <- cantidad;
             precios[product] <- precio;
@@ -528,17 +581,66 @@ species vendedor skills: [fipa] control: simple_bdi {
 		list conceptos <- list(content_pair.value);
 		
 		if (predicado = contraoferta_recibida) {
-			write name + ' receive_requests: Recibida contraoferta del pescado: ' + conceptos[0];
-		
-			// Valorar si aceptar contraoferta
-			bool b_aceptar_contraoferta <- true;
-			if(b_aceptar_contraoferta) {
-				do agree message: requestContraofertaDelComprador contents: [aceptar_contraoferta];
+			write name + ' receive_requests: Recibida contraoferta del pescado: ' + conceptos[0] + conceptos[1];
+			
+			map <string, int> precios_comprador <- conceptos[1];
+			map <string, int> productos <- conceptos[0];
+			
+			bool aceptar_contra <- true;
+			loop producto over: precios_comprador.keys {
+				if precios[producto] > precios_comprador[producto] + 3 {
+					aceptar_contra <- false;
+				}
 			}
-			//do refuse message: requestTraerFromOwner contents: requestTraerFromOwner.contents;
+			
+			if aceptar_contra {//Contaoferta
+				bool exito_compra <- true;
+		       
+		        int posible_dinero <- 0;
+	
+		        loop product over: productos.keys {
+		            int requested_quantity <- productos[product];
+		            if (inventario contains_key product and inventario[product] >= requested_quantity) {
+		                // Actualizar inventario
+		                inventario[product] <- inventario[product] - requested_quantity;
+		                
+		                if (inventario[product] = 0) {		             
+			                inventario[] >> product;
+			            }
+			            
+			            posible_dinero <- posible_dinero + precios_comprador[product] * requested_quantity;
+		            
+		                // Optionally, update sales records
+		                write name + ": Sold " + string(requested_quantity) + " units of " + product + " to " + string(requestContraofertaDelComprador.sender);
+		            } else {
+		                // Not enough stock
+		                write "HA habido fail";
+		                write name + ": Not enough stock of " + product + " for " + string(requestContraofertaDelComprador.sender);
+		                exito_compra <- false;
+		                // Send failure message
+		                do failure message: requestContraofertaDelComprador contents: ["Insufficient stock for " + product];
+		                break; // Exit the loop if any product is unavailable
+		            }
+		        }
+		
+		        if (exito_compra) {
+		            // Send confirmation
+		            // do inform to: [comprador_agent] contents: ["Purchase confirmed"];
+					write "NO HA habido fail";
+		            
+		            dinero <- dinero + posible_dinero;
+		            write name + " Dinero actualizado: " + dinero;      
+					// Restar el producto
+					do agree message: requestContraofertaDelComprador contents: [aceptar_contraoferta];
+		        }
+			}
+			
+			do failure message: requestContraofertaDelComprador contents: ["Insufficient stock"];
+		
+			
 		}
 		
-		if (predicado = oferta_recibida) {
+		if (predicado = oferta_recibida) {//Compra
 			// Checkear es el valor esperado
 			write name + ": Recibida oferta de compra de " + string(requestContraofertaDelComprador.sender);
 			
