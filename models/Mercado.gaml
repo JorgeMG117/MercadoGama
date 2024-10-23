@@ -459,9 +459,16 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	
 	reflex receive_failure when: !empty(failures) {
 		message failureFromFridge <- failures[0];
-		write 'Robot receives a failure message from the Fridge with content ' + failureFromFridge.contents;	
+		write name + " failure: " + failureFromFridge;	
 		do remove_desire(negociar);
 	}
+	
+	reflex receive_refuse when: !empty(refuses) {
+		message failureFromFridge <- refuses[0];
+		write name + " refuse: " + failureFromFridge;
+		do remove_desire(negociar);
+	}
+	
 	
 //	aspect name:comprador_aspect {		
 //		draw geometry:circle(33.3/size) color:owner_color;
@@ -618,7 +625,7 @@ species vendedor skills: [fipa] control: simple_bdi {
 		                write name + ": Not enough stock of " + product + " for " + string(requestContraofertaDelComprador.sender);
 		                exito_compra <- false;
 		                // Send failure message
-		                do failure message: requestContraofertaDelComprador contents: ["Insufficient stock for " + product];
+		                do refuse message: requestContraofertaDelComprador contents: ["Insufficient stock for " + product];
 		                break; // Exit the loop if any product is unavailable
 		            }
 		        }
@@ -634,9 +641,10 @@ species vendedor skills: [fipa] control: simple_bdi {
 					do agree message: requestContraofertaDelComprador contents: [aceptar_contraoferta];
 		        }
 			}
+			else {
 			
-			do failure message: requestContraofertaDelComprador contents: ["Insufficient stock"];
-		
+				do refuse message: requestContraofertaDelComprador contents: ["Insufficient stock"];
+			}
 			
 		}
 		
@@ -670,7 +678,7 @@ species vendedor skills: [fipa] control: simple_bdi {
 	                write name + ": Not enough stock of " + product + " for " + string(requestContraofertaDelComprador.sender);
 	                exito_compra <- false;
 	                // Send failure message
-	                do failure message: requestContraofertaDelComprador contents: ["Insufficient stock for " + product];
+	                do refuse message: requestContraofertaDelComprador contents: ["Insufficient stock for " + product];
 	                break; // Exit the loop if any product is unavailable
 	            }
 	        }
