@@ -18,8 +18,8 @@ global torus:false {
 	
 //  Parameters setup:
 
-	int n_compradores <- 1;
-	int n_vendedores <- 1;
+	int n_compradores <- 3;
+	int n_vendedores <- 5;
 	list<string> productos_disponibles <- ["plátano", "cereza", "langosta", "manzana", "pera", "uva", "mango", "naranja"];
 	
 // Shared knowledge by all agents that belong to the ontology:
@@ -144,7 +144,7 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	
 	init {
 		owner_color <- drinking_color;
-		location <- {5, 5};
+		//location <- {5, 5};
 		
 		presupuesto <- rnd(100, 500); // Presupuesto entre 100 y 500
 		int num_necesidades <- rnd(1, 4);
@@ -374,6 +374,7 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 		// Ahora toca comprar
 		// Actualizar nuevo precio del producto
 		message agree_received <- agrees at 0;
+		
 		loop i over: agrees {
 			write name + ' receive_agree message with content: ' + string(i.contents);
 		}
@@ -464,9 +465,19 @@ species comprador skills: [fipa, moving] control: simple_bdi {
 	}
 	
 	reflex receive_refuse when: !empty(refuses) {
-		message failureFromFridge <- refuses[0];
-		write name + " refuse: " + failureFromFridge;
+		message failureFromFridge <- refuses at 0;
+		//refuses[] >> 0;
+		refuses >>- failureFromFridge;
+		//remove refuses;
+		loop i over: refuses {
+			//write name + ' receive_agree message with content: ' + string(i.contents);
+			//write name + " refuse: message with content " + failureFromFridge;
+		}
+		write 'Robot receives a failure message from the Fridge with content ' + failureFromFridge.contents;
+		
 		do remove_desire(negociar);
+		do remove_desire(comprar);
+		do add_desire(buscar);
 	}
 	
 	
@@ -532,7 +543,7 @@ species vendedor skills: [fipa] control: simple_bdi {
         list<string> selected_products <- shuffle(productos_disponibles)[0::num_productos];
 
         loop product over: selected_products { 
-        	location <- {5, 5};
+        	//location <- {5, 5};
             int cantidad <- rnd(10, 100); // Random quantity between 10 and 100
             int precio <- rnd(20, 30); // Random price between 1.0 and 30.0
 
@@ -644,6 +655,7 @@ species vendedor skills: [fipa] control: simple_bdi {
 			else {
 			
 				do refuse message: requestContraofertaDelComprador contents: ["Insufficient stock"];
+				write "Contraoferta rechazada";
 			}
 			
 		}
